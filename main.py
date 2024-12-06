@@ -5,7 +5,8 @@ import time
 # Настройки
 PORT = 12345
 BUFFER_SIZE = 1024
-HOST = '255.255.255.255'  # Расширенный адрес для проверки доступных устройств в сети
+TIMEOUT = 2  # Время ожидания для попытки подключения
+
 
 # Функция для прослушивания входящих сообщений (серверная часть)
 def listen_for_messages():
@@ -26,6 +27,7 @@ def listen_for_messages():
 
         client_socket.close()
 
+
 # Функция для отправки сообщений (клиентская часть)
 def send_messages(target_host):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -44,24 +46,28 @@ def send_messages(target_host):
     finally:
         client_socket.close()
 
+
 # Функция для проверки доступности хоста (сервер)
-def check_if_host_exists():
+def check_if_host_exists(target_host):
     try:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.settimeout(2)  # Устанавливаем таймаут для подключения
-        client_socket.connect((HOST, PORT))
+        client_socket.settimeout(TIMEOUT)  # Устанавливаем таймаут для подключения
+        client_socket.connect((target_host, PORT))
         client_socket.close()
         return True  # Хост доступен
     except (socket.timeout, socket.error):
         return False  # Хост недоступен
 
+
 # Основная логика
 def main():
-    # Шаг 1: Проверка, есть ли уже хост в сети
-    print("Проверяю, доступен ли хост...")
-    if check_if_host_exists():
-        print("Хост найден! Подключаюсь как клиент.")
-        target_host = input("Введите IP-адрес хоста: ")
+    target_host = '192.168.1.1'  # Укажите сюда IP адрес другого устройства в сети (например, маршрутизатора или первого хоста)
+
+    print(f"Проверяю, доступен ли хост {target_host}...")
+
+    # Шаг 1: Проверка доступности хоста
+    if check_if_host_exists(target_host):
+        print(f"Хост {target_host} найден! Подключаюсь как клиент.")
         send_messages(target_host)
     else:
         print("Хост не найден. Становлюсь хостом.")
@@ -73,6 +79,7 @@ def main():
         # Ожидание, пока программа не завершится
         while True:
             time.sleep(1)
+
 
 if __name__ == "__main__":
     main()
