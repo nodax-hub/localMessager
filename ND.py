@@ -1,5 +1,4 @@
 import abc
-import asyncio
 import enum
 import json
 import logging
@@ -12,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, List
 from typing import Optional
+from uuid import uuid4
 
 import colorlog
 from zeroconf import (
@@ -550,7 +550,8 @@ def main():
     publisher = ZeroconfServicePublisher(hostname=hostname,
                                          service_type=service_type,
                                          ip=ip,
-                                         port=service_port)
+                                         port=service_port,
+                                         service_name=f"{hostname}-{str(uuid4())[:8]}.{service_type}")
 
     discovery = ZeroconfServiceDiscovery(service_type=service_type)
 
@@ -575,7 +576,7 @@ def main():
 
             if command.startswith(cmd := "msg"):
                 message = command[len(cmd) + 1:]
-                logger.debug(f"try send file {message}")
+                logger.debug(f"try send message {message}")
                 manager.send_text_to_all(message)
 
             elif command.startswith(cmd := "send"):
