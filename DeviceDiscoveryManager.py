@@ -1,19 +1,18 @@
 import logging
-import platform
-import subprocess
 import threading
 from pathlib import Path
-from typing import List, Callable
+from typing import List
 
 from zeroconf import ServiceStateChange
 
 from Messages.MessageClient import MessageClient
 from Messages.MessageServer import MessageServer
-from models import Service
 from Services.ServiceDiscovery import ServiceDiscovery
 from Services.ServicePublisher import ServicePublisher
+from models import Service
 
 logger = logging.getLogger(__name__)
+
 
 class DeviceDiscoveryManager:
     def __init__(self,

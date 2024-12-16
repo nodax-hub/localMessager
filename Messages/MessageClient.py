@@ -21,7 +21,8 @@ class MessageClient:
         }
         self._send_data(target_service, data)
 
-    def send_file(self, target_service: Service, file_path: PathLike, sender: str):
+    @staticmethod
+    def send_file(target_service: Service, file_path: PathLike, sender: str):
         if not os.path.isfile(file_path):
             logger.error(f"Файл {file_path} не найден.")
             return
