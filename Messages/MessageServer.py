@@ -5,6 +5,7 @@ import socket
 import threading
 
 logger = logging.getLogger(__name__)
+BUFFER_SIZE = 4 * 1024
 
 
 class MessageServer:
@@ -46,11 +47,12 @@ class MessageServer:
             except Exception as e:
                 if self.running:
                     logger.error(f"Ошибка в MessageServer: {e}")
+                    raise
 
     def handle_client(self, client_socket: socket.socket):
         with client_socket:
             try:
-                data = client_socket.recv(4096).decode('utf-8')
+                data = client_socket.recv(BUFFER_SIZE).decode('utf-8')
                 if not data:
                     return
                 message = json.loads(data)
@@ -81,7 +83,7 @@ class MessageServer:
             with open(received_path, 'wb') as f:
                 remaining = filesize
                 while remaining > 0:
-                    chunk = client_socket.recv(min(4096, remaining))
+                    chunk = client_socket.recv(min(BUFFER_SIZE, remaining))
                     if not chunk:
                         break
                     f.write(chunk)

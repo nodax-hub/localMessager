@@ -4,6 +4,7 @@ import os
 import socket
 from os import PathLike
 
+from Messages.MessageServer import BUFFER_SIZE
 from models import Service
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ class MessageClient:
                 logger.info(f"Отправка файла '{filename}' на {target_service.name}:{target_service.port}")
                 with open(file_path, 'rb') as f:
                     while True:
-                        bytes_read = f.read(4096)
+                        bytes_read = f.read(BUFFER_SIZE)
                         if not bytes_read:
                             break
                         sock.sendall(bytes_read)
