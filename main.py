@@ -10,6 +10,7 @@ import colorlog
 from DeviceDiscoveryManager import DeviceDiscoveryManager
 from Messages.MessageClient import MessageClient
 from Messages.MessageServer import MessageServer
+from NetworkInterface import NetworkInterface
 from Services.ServiceDiscovery import ServiceDiscovery
 from Services.ServicePublisher import ServicePublisher
 
@@ -51,23 +52,37 @@ def get_local_ip() -> Optional[str]:
         raise
 
 
+def get_interface() -> NetworkInterface:
+    available_interfaces = NetworkInterface.list_interfaces()
+    print("Доступные сетевые интерфейсы:")
+    for i, iface in enumerate(available_interfaces, 1):
+        print(f"{i}. {iface}")
+
+    i = int(input(f"Выберите интерфейс через который необходимо выполнять связь: "))
+    return NetworkInterface(available_interfaces[i - 1])
+
+
 # Пример использования
 def main():
     received = Path('received_files')
     received.mkdir(parents=True, exist_ok=True)
 
-    ip = get_local_ip()  # Получаем ip-адрес текущего устройства
+    interface = get_interface()
+    ip = interface.get_ip_v4_address()
+    mac_address = interface.get_mac_address()
+    print(f"Выбран интерфейс: '{interface.interface_name}', IP: {ip}, MAC: {mac_address}.")
 
     hostname = platform.node()
     service_type = "_sync._tcp.local."
     service_port = 8000  # Порт для zeroconf
     message_port = 8001  # Порт для сообщений
+    service_name = f"{hostname}-{mac_address}.{service_type}"
 
     publisher = ServicePublisher(hostname=hostname,
                                  service_type=service_type,
                                  ip=ip,
                                  port=service_port,
-                                 service_name=f"{hostname}-{str(uuid4())[:8]}.{service_type}")
+                                 service_name=service_name)
 
     discovery = ServiceDiscovery(service_type=service_type)
 
