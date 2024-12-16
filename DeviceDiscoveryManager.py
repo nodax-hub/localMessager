@@ -1,16 +1,19 @@
+import logging
 import platform
 import subprocess
 import threading
 from pathlib import Path
 from typing import List, Callable
 
+from zeroconf import ServiceStateChange
+
 from Messages.MessageClient import MessageClient
 from Messages.MessageServer import MessageServer
-from main import logger
 from models import Service
-from Services.ServiceDiscovery import ServiceDiscovery, EventType
+from Services.ServiceDiscovery import ServiceDiscovery
 from Services.ServicePublisher import ServicePublisher
 
+logger = logging.getLogger(__name__)
 
 class DeviceDiscoveryManager:
     def __init__(self,
@@ -45,12 +48,12 @@ class DeviceDiscoveryManager:
 
         logger.info("DeviceDiscoveryManager остановлен.")
 
-    def handle_event(self, event: EventType, service: Service) -> None:
+    def handle_event(self, event: ServiceStateChange, service: Service) -> None:
         match event:
-            case EventType.ADDED:
+            case ServiceStateChange.Added:
                 self.add_client(service)
 
-            case EventType.REMOVED:
+            case ServiceStateChange.Removed:
                 self.remove_client(service)
 
     def add_client(self, service: Service) -> None:

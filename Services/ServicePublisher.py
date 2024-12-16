@@ -1,10 +1,12 @@
+import logging
 import socket
 from typing import Optional
 
 from zeroconf import Zeroconf, ServiceInfo
 
-from main import logger
 from models import Service
+
+logger = logging.getLogger(__name__)
 
 
 class ServicePublisher:

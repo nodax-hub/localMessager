@@ -1,9 +1,10 @@
 import json
+import logging
 import os
 import socket
 import threading
 
-from main import logger
+logger = logging.getLogger(__name__)
 
 
 class MessageServer:

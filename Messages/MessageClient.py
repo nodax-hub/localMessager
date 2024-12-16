@@ -1,9 +1,12 @@
 import json
+import logging
 import os
 import socket
+from os import PathLike
 
-from main import logger
 from models import Service
+
+logger = logging.getLogger(__name__)
 
 
 class MessageClient:
@@ -18,7 +21,7 @@ class MessageClient:
         }
         self._send_data(target_service, data)
 
-    def send_file(self, target_service: Service, file_path: str, sender: str):
+    def send_file(self, target_service: Service, file_path: PathLike, sender: str):
         if not os.path.isfile(file_path):
             logger.error(f"Файл {file_path} не найден.")
             return

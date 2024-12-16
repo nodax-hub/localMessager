@@ -92,12 +92,10 @@ def main():
 
             if command.startswith(cmd := "msg"):
                 message = command[len(cmd) + 1:]
-                logger.debug(f"try send message {message}")
                 manager.send_text_to_all(message)
 
             elif command.startswith(cmd := "send"):
                 file_path = Path(command[len(cmd) + 1:]).resolve()
-                logger.debug(f"try send file {file_path}")
                 manager.send_file_to_all(file_path)
 
             elif command == "exit":
