@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class Service:
     name: str
     address: Optional[str] = field(default=None, compare=False)

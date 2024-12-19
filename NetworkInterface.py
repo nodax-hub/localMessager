@@ -44,9 +44,8 @@ class NetworkInterface:
 
     def _get_ip_address(self, family) -> str | None:
         """
-        Возвращает IP-адрес выбранного интерфейса.
+        Возвращает IP-адрес для текущего интерфейса.
 
-        :param ipv6: Если True, возвращает IPv6-адрес. По умолчанию возвращает IPv4-адрес.
         :return: IP-адрес или None, если интерфейс не найден или не имеет IP.
         """
         addrs = psutil.net_if_addrs().get(self.interface_name)

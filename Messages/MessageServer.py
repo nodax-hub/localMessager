@@ -40,7 +40,7 @@ class MessageServer:
         while self.running:
             try:
                 client_socket, addr = self.server_socket.accept()
-                logger.info(f"Получено соединение от {addr}")
+                logger.debug(f"Сервер обработал новое соединение от {addr}")
 
                 handler_thread = threading.Thread(target=self.handle_client, args=(client_socket,), daemon=True)
                 handler_thread.start()
@@ -59,6 +59,8 @@ class MessageServer:
                 self.process_message(message, client_socket)
             except Exception as e:
                 logger.error(f"Ошибка при обработке клиента: {e}")
+            finally:
+                logger.debug(f"Сервер закрыл соединение с {client_socket.getpeername()}")
 
     @staticmethod
     def process_message(message: dict, client_socket: socket.socket):

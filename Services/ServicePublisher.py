@@ -1,6 +1,6 @@
 import logging
 import socket
-from typing import Optional
+from typing import Optional, Literal
 
 from zeroconf import Zeroconf, ServiceInfo
 
@@ -10,14 +10,23 @@ logger = logging.getLogger(__name__)
 
 
 class ServicePublisher:
-    def __init__(self, hostname: str, service_type: str, ip: str, port: int, service_name: str = None):
+    def __init__(self,
+                 hostname: str,
+                 service_type: str,
+                 ip: str,
+                 port: int,
+                 service_name: str = None,
+                 description: dict = None,
+                 protocol: Literal["tcp", "udp"] = "tcp"):
         self.zeroconf = Zeroconf()
-        self._service_type = service_type
-        self._service_name = service_name or f"{hostname}.{self._service_type}"
+        self._service_type = f"_{service_type}._{protocol}.local."
+        self._service_name = f"{service_name}.{self._service_type}" or f"{hostname}.{self._service_type}"
 
         self._ip = ip
         self._port = port
         self.hostname = hostname
+
+        self.description = {} if description is None else description
 
         self.service_info: Optional[ServiceInfo] = None
         logger.debug(f"ServicePublisher инициализирован для сервиса '{self._service_name}'.")
@@ -34,14 +43,13 @@ class ServicePublisher:
         return service.name == self._service_name
 
     def register_service(self) -> None:
-        desc = {"path": "/"}  # Дополнительная информация о сервисе
 
         self.service_info = ServiceInfo(
             type_=self._service_type,
             name=self._service_name,
             addresses=[socket.inet_aton(self._ip)],
             port=self._port,
-            properties=desc,
+            properties=self.description,
             server=f"{self.hostname}.local.",
         )
 

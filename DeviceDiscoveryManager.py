@@ -1,5 +1,6 @@
 import logging
 import threading
+from dataclasses import asdict
 from pathlib import Path
 from typing import List
 
@@ -61,8 +62,8 @@ class DeviceDiscoveryManager:
                 logger.info(f"Игнорируем собственный сервис: {service.name}.")
                 return
 
-            # Устанавливаем порт для сообщений
-            service.port = self.message_server.port
+            # Устанавливаем порт для сообщений для обратной совместимости
+            service = Service(**asdict(service) | dict(port=self.message_server.port))
 
             if service not in self.clients:
                 self.clients.append(service)

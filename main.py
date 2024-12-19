@@ -1,9 +1,10 @@
+import os
+import uuid
 import logging
 import platform
 import socket
 from pathlib import Path
 from typing import Optional
-from uuid import uuid4
 
 import colorlog
 
@@ -52,6 +53,13 @@ def get_local_ip() -> Optional[str]:
         raise
 
 
+def get_device_id(file_path_to_device_id=Path(".this_device_id.txt")):
+    if not file_path_to_device_id.exists():
+        file_path_to_device_id.write_text(str(uuid.uuid4()), encoding='utf-8')
+
+    return file_path_to_device_id.read_text(encoding='utf-8').strip()
+
+
 def get_interface() -> NetworkInterface:
     available_interfaces = NetworkInterface.list_interfaces()
     print("Доступные сетевые интерфейсы:")
@@ -67,27 +75,33 @@ def main():
     received = Path('received_files')
     received.mkdir(parents=True, exist_ok=True)
 
+    device_id = get_device_id()
+    print(f"Device ID: {device_id}")
+
     interface = get_interface()
     ip = interface.get_ip_v4_address()
     mac_address = interface.get_mac_address()
     print(f"Выбран интерфейс: '{interface.interface_name}', IP: {ip}, MAC: {mac_address}.")
 
     hostname = platform.node()
-    service_type = "_sync._tcp.local."
-    service_port = 8000  # Порт для zeroconf
-    message_port = 8001  # Порт для сообщений
-    service_name = f"{hostname}-{mac_address}.{service_type}"
+    service_type = "sync"
+    service_name = f"{hostname}-{device_id}"
+
+    message_server_port = 8001  # Порт для сообщений
 
     publisher = ServicePublisher(hostname=hostname,
                                  service_type=service_type,
                                  ip=ip,
-                                 port=service_port,
-                                 service_name=service_name)
+                                 port=message_server_port,
+                                 service_name=service_name,
+                                 description={'MAC': mac_address,
+                                              'DEVICE_ID': device_id,
+                                              'INTERFACE_NAME': interface.interface_name})
 
     discovery = ServiceDiscovery(service_type=service_type)
 
     message_client = MessageClient()
-    message_server = MessageServer(host=ip, port=message_port)
+    message_server = MessageServer(host=ip, port=message_server_port)
 
     manager = DeviceDiscoveryManager(publisher=publisher,
                                      discovery=discovery,

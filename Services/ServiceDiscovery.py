@@ -1,7 +1,7 @@
 import logging
 import socket
 import threading
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, Literal
 
 from zeroconf import Zeroconf, ServiceBrowser, ServiceStateChange
 
@@ -11,10 +11,15 @@ logger = logging.getLogger(__name__)
 
 
 class ServiceDiscovery:
-    def __init__(self, service_type: str):
+    def __init__(self,
+                 service_type: str,
+                 protocol: Literal["tcp", "udp"] = "tcp"):
+
         self.zeroconf = Zeroconf()
-        self.service_type = service_type
+        self.service_type = f"_{service_type}._{protocol}.local."
+
         self.browser: Optional[ServiceBrowser] = None
+
         self._listeners: List[Callable[[ServiceStateChange, Service], None]] = []
         self._lock = threading.Lock()
 
@@ -66,13 +71,13 @@ class ServiceDiscovery:
                     logger.warning(f"Не удалось получить информацию о сервисе: {name}")
 
             case ServiceStateChange.Updated:
-                service1 = Service(name=name, address=None, port=None)
-                self.dispatch(ServiceStateChange.Updated, service1,
+                service = Service(name=name, address=None, port=None)
+                self.dispatch(ServiceStateChange.Updated, service,
                               f"Сервис {name} обновлён")
 
             case ServiceStateChange.Removed:
-                service2 = Service(name=name, address=None, port=None)
-                self.dispatch(ServiceStateChange.Removed, service2,
+                service = Service(name=name, address=None, port=None)
+                self.dispatch(ServiceStateChange.Removed, service,
                               f"Сервис {name} удалён")
 
             case _:
