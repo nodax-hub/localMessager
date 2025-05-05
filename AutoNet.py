@@ -3,6 +3,7 @@ import ipaddress
 import json
 import logging
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass
 from itertools import chain
 from typing import Dict, Optional
@@ -43,6 +44,7 @@ class Peer:
 
 class ConnectionManager:
     def __init__(self, me: str, on_up, on_down, host="0.0.0.0"):
+        self.fail_cnt: defaultdict[str, int] = defaultdict(int)
         self.me, self.host = me, host
         self.port: int | None = None
         self.server: asyncio.AbstractServer | None = None
@@ -68,9 +70,21 @@ class ConnectionManager:
         self.known_peers[pid] = (host, port)
         try:
             ws = await connect(f"ws://{host}:{port}", ping_interval=15, ping_timeout=10, max_size=2 ** 20)
+        
         except OSError as exc:
-            LOG.warning("[DIAL] fail %s:%s – %s", host, port, exc)
+            self.fail_cnt[pid] += 1
+            LOG.warning("[DIAL] fail %s:%s – %s (attempt %d)",
+                        host, port, exc, self.fail_cnt[pid])
+            # после 3 подряд неудач убираем peer из кэша
+            if self.fail_cnt[pid] >= 3:
+                self.known_peers.pop(pid, None)
+                self.fail_cnt.pop(pid, None)
+                LOG.warning("[DIAL] giving up on %s — удаляем из known_peers", pid)
             return
+        else:
+            # успешное подключение — обнуляем счётчик
+            self.fail_cnt.pop(pid, None)
+            
         await ws.send(json.dumps({"peerId": self.me}))
         await self._run_link(pid, ws, "[DIAL]")
     
@@ -114,7 +128,10 @@ class ConnectionManager:
             async for msg in ws:
                 LOG.info("msg ← %s: %s", pid, msg)
         except ConnectionClosed as e:
-            LOG.warning("link ERR ↔ %s  code=%s reason=%s", pid, e.code, e.reason)
+            if e.rcvd and e.rcvd.code == 1000:  # дубликат – не страшно
+                LOG.debug("duplicate link closed ↔ %s", pid)
+            else:
+                LOG.warning("link ERR ↔ %s code=%s reason=%s", pid, e.code, e.reason)
         finally:
             await self._drop_link(pid, ws)
     
@@ -125,7 +142,8 @@ class ConnectionManager:
             LOG.warning("link DOWN ↔ %s  (total %d)", pid, len(self.peers))
     
     async def reconnect_peers(self):
-        for pid, (host, port) in self.known_peers.items():
+        # снимаем «снимок» словаря, чтобы изменения внутри цикла не мешали
+        for pid, (host, port) in list(self.known_peers.items()):
             if pid not in self.peers:
                 await self.connect(host, port, pid)
 
@@ -159,8 +177,42 @@ class MdnsNode:
         await self.azc.async_close()
     
     def _on_srv(self, zeroconf, service_type, name, state_change):
-        if state_change is ServiceStateChange.Added and name != self.info.name:
+        if name == self.info.name:  # собственный анонс игнорируем
+            return
+        
+        if state_change is ServiceStateChange.Added:
             asyncio.create_task(self._handle_srv(zeroconf, service_type, name))
+        
+        elif state_change is ServiceStateChange.Updated:
+            asyncio.create_task(self._handle_update(zeroconf, service_type, name))
+        
+        elif state_change is ServiceStateChange.Removed:
+            pid = name.split(".")[0]
+            self.conn.known_peers.pop(pid, None)
+            LOG.info("[MDNS] %s removed — stop reconnecting", pid)
+    
+    async def _handle_update(self, zeroconf, service_type, name):
+        try:
+            async_info = AsyncServiceInfo(service_type, name)
+            await async_info.async_request(zeroconf, 3000)
+            if not async_info.addresses:
+                return
+            
+            pid = name.split(".")[0]
+            host_ip = ipaddress.ip_address(async_info.addresses[0]).compressed
+            new_port = async_info.port
+            
+            old = self.conn.known_peers.get(pid)
+            if old and (old != (host_ip, new_port)):
+                LOG.info("[MDNS] %s updated → %s:%s  (было %s:%s)",
+                         pid, host_ip, new_port, *old)
+                # обновляем кэш и, если соединения нет, пытаемся снова
+                self.conn.known_peers[pid] = (host_ip, new_port)
+                if pid not in self.conn.peers:
+                    await self.conn.connect(host_ip, new_port, pid)
+        
+        except Exception as e:
+            LOG.warning("Ошибка обработки mDNS-update: %s", e)
     
     async def _handle_srv(self, zeroconf, service_type, name):
         try:
@@ -173,12 +225,17 @@ class MdnsNode:
                     LOG.info("Пропускаем подключение к %s (наш peerId больше)", pid)
                     return
                 
+                if pid in self.conn.peers:
+                    LOG.info("Уже есть живое соединение с %s – ничего делать не нужно", pid)
+                    return
+                
                 host_ip = ipaddress.ip_address(async_info.addresses[0]).compressed
                 
                 # Найдём имя интерфейса:
                 iface_name = next((iface for iface, ips in list_local_ips().items() if host_ip in ips), "неизвестный")
                 
                 LOG.info("[MDNS] Подключаемся к %s через интерфейс %s (%s)", pid, iface_name, host_ip)
+                self.conn.known_peers[pid] = (host_ip, async_info.port)
                 await self.conn.connect(host_ip, async_info.port, pid)
         except Exception as e:
             LOG.warning("Ошибка обработки mDNS: %s", e)
@@ -230,15 +287,34 @@ class AutoNet:
     
     async def run(self):
         await self.conn.start()
-        asyncio.create_task(self.monitor_interfaces())
-        asyncio.create_task(self._heartbeat())
-        while True:
-            await asyncio.sleep(3600)
+        self.mdns = MdnsNode(self, self.conn)
+        await self.mdns.start()
+        
+        tasks = [
+            asyncio.create_task(self.monitor_interfaces()),
+            asyncio.create_task(self._heartbeat()),
+            asyncio.create_task(self._keep_trying_peers()),
+        ]
+        try:
+            await asyncio.Event().wait()  # run forever
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            pass
+        finally:  # сюда попадаем и при Ctrl+C
+            for t in tasks:
+                t.cancel()
+            if self.mdns:
+                await self.mdns.stop()  # ← отправит goodbye
+            await self.conn.stop()
     
     async def _heartbeat(self):
         while True:
-            await asyncio.sleep(5)
-            self.conn.broadcast({"from": self.id, "text": "HELLO"})
+            await asyncio.sleep(10)
+            self.conn.broadcast({"from": self.id, "text": "PING"})
+    
+    async def _keep_trying_peers(self):
+        while True:
+            await asyncio.sleep(15)  # плавный интервал
+            await self.conn.reconnect_peers()
 
 
 if __name__ == "__main__":
