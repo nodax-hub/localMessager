@@ -1,10 +1,12 @@
 import asyncio
+import base64
 import ipaddress
 import json
 import logging
+import pathlib
 import uuid
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import chain
 from typing import Dict, Optional
 
@@ -40,10 +42,13 @@ def list_local_ips() -> dict[str, list[str]]:
 @dataclass
 class Peer:
     ws: WebSocketClientProtocol | WebSocketServerProtocol
+    info: dict = field(default_factory=dict)
 
 
 class ConnectionManager:
-    def __init__(self, me: str, on_up, on_down, host="0.0.0.0"):
+    def __init__(self, me: str, on_up, on_down, on_message=None, heartbeat_msg='PING', host="0.0.0.0"):
+        self._heartbeat_msg = heartbeat_msg
+        self.on_message = on_message
         self.fail_cnt: defaultdict[str, int] = defaultdict(int)
         self.me, self.host = me, host
         self.port: int | None = None
@@ -84,7 +89,7 @@ class ConnectionManager:
         else:
             # успешное подключение — обнуляем счётчик
             self.fail_cnt.pop(pid, None)
-            
+        
         await ws.send(json.dumps({"peerId": self.me}))
         await self._run_link(pid, ws, "[DIAL]")
     
@@ -96,10 +101,27 @@ class ConnectionManager:
             except ConnectionClosed:
                 await self._drop_link(pid, peer.ws)
     
-    def broadcast(self, obj: dict):
+    async def broadcast(self, obj: dict):
         payload = json.dumps(obj)
         for pid, peer in list(self.peers.items()):
             asyncio.create_task(self._safe_send(peer.ws, pid, payload))
+    
+    async def send_file(self, pid: str, file_path: str):
+        data = pathlib.Path(file_path).read_bytes()
+        payload = {
+            "from": self.me,
+            "file": pathlib.Path(file_path).name,
+            "data": base64.b64encode(data).decode()
+        }
+        await self.send(pid, payload)
+    
+    async def broadcast_file(self, file_path: str):
+        data = pathlib.Path(file_path).read_bytes()
+        await self.broadcast({
+            "from": self.me,
+            "file": pathlib.Path(file_path).name,
+            "data": base64.b64encode(data).decode()
+        })
     
     async def _safe_send(self, ws, pid, payload):
         try:
@@ -122,11 +144,24 @@ class ConnectionManager:
     
     async def _run_link(self, pid: str, ws, tag: str):
         self.peers[pid] = Peer(ws)
+        # запоминаем подробности канала, чтобы GUI мог их показать
+        host, port = ws.remote_address[:2]
+        iface = next((n for n, ips in list_local_ips().items() if host in ips), "неизвестный")
+        self.peers[pid].info = {"iface": iface, "addr": host, "port": port}
+        
         self._on_up(pid)
         LOG.info("%s link UP ↔ %s  (total %d)", tag, pid, len(self.peers))
         try:
             async for msg in ws:
                 LOG.info("msg ← %s: %s", pid, msg)
+                
+                if json.loads(msg).get('text', None) == self._heartbeat_msg:
+                    LOG.info(f'Received heartbeat msg from {pid}')
+                    continue
+                    
+                if self.on_message:
+                    self.on_message(pid, msg)
+                    
         except ConnectionClosed as e:
             if e.rcvd and e.rcvd.code == 1000:  # дубликат – не страшно
                 LOG.debug("duplicate link closed ↔ %s", pid)
@@ -242,16 +277,14 @@ class MdnsNode:
 
 
 class AutoNet:
-    def __init__(self):
+    def __init__(self, on_message=None, on_up=None, on_down=None):
+        self.on_up = on_up
+        self.on_down = on_down
+        self.on_message = on_message
         self.id = uuid.uuid4().hex
-        self.conn = ConnectionManager(self.id, self._up, self._down)
+        self._heartbeat_text = 'PING'
+        self.conn = ConnectionManager(self.id, self.on_up, self.on_down, self.on_message, self._heartbeat_text)
         self.mdns: Optional[MdnsNode] = None
-    
-    def _up(self, pid: str):
-        pass
-    
-    def _down(self, pid: str):
-        pass
     
     async def monitor_interfaces(self):
         previous_interfaces = {}
@@ -292,24 +325,24 @@ class AutoNet:
         
         tasks = [
             asyncio.create_task(self.monitor_interfaces()),
-            asyncio.create_task(self._heartbeat()),
+            asyncio.create_task(self._heartbeat(self._heartbeat_text)),
             asyncio.create_task(self._keep_trying_peers()),
         ]
         try:
             await asyncio.Event().wait()  # run forever
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
-        finally:  # сюда попадаем и при Ctrl+C
+        finally:
             for t in tasks:
                 t.cancel()
             if self.mdns:
                 await self.mdns.stop()  # ← отправит goodbye
             await self.conn.stop()
     
-    async def _heartbeat(self):
+    async def _heartbeat(self, ping="PING"):
         while True:
             await asyncio.sleep(10)
-            self.conn.broadcast({"from": self.id, "text": "PING"})
+            await self.conn.broadcast({"from": self.id, "text": ping})
     
     async def _keep_trying_peers(self):
         while True:
