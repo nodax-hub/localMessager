@@ -1,3 +1,4 @@
 colorlog
 zeroconf
+websockets
 psutil
