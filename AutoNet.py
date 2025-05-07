@@ -350,6 +350,10 @@ class ConnectionManager:
         #     await ws.close(code=1000, reason="duplicate")
         #     return
         
+        # Мини фикс (случай если к нам хотят подключиться раньше чем мы обнаружили этот сервис)
+        if pid not in self.peers:
+            self.peers[pid] = Peer(pid)
+        
         await ws.send(json.dumps({"peerId": self.me, "ack": True}))
         await self._run_link(pid, ws, "[ACCEPT]")
     
