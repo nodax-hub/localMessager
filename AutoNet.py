@@ -247,9 +247,15 @@ class ConnectionManager:
         LOG.info("WebSocket server listening on ws://0.0.0.0:%s (IPs %s)", self.port, get_list_available_interfaces())
     
     async def stop(self):
+        # корректно закрываем только «живые» WebSocket-объекты
         for peer in list(self.peers.values()):
-            await peer.ws.close(code=1001, reason="shutdown")
-        
+            ws = getattr(peer, "ws", None)
+            if ws is not None and not ws.closed:
+                try:
+                    await ws.close(code=1001, reason="shutdown")
+                except ConnectionClosed:
+                    # соединение уже умерло – игнорируем
+                    pass
         if self.server:
             self.server.close()
             await self.server.wait_closed()
