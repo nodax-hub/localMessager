@@ -304,11 +304,10 @@ class ConnectionManager:
     
     async def send(self, pid: str, obj: dict):
         peer = self.peers.get(pid)
+        payload = json.dumps(obj)
+        
         if peer:
-            try:
-                await peer.ws.send(json.dumps(obj))
-            except ConnectionClosed:
-                await self._drop_link(pid, peer.ws)
+            await self._safe_send(peer.ws, pid, payload)
     
     async def broadcast(self, obj: dict):
         payload = json.dumps(obj)
@@ -323,6 +322,7 @@ class ConnectionManager:
             "file": pathlib.Path(file_path).name,
             "data": base64.b64encode(data).decode()
         }
+        
         await self.send(pid, payload)
     
     async def broadcast_file(self, file_path: str):
@@ -333,10 +333,12 @@ class ConnectionManager:
             "data": base64.b64encode(data).decode()
         })
     
-    async def _safe_send(self, ws, pid, payload):
+    async def _safe_send(self, ws: WebSocketCommonProtocol, pid: str, payload):
         try:
             if ws is not None:
                 await ws.send(payload)
+            else:
+                LOG.warning(f"Предпринята попытка отправки на {pid} с которым не установлено соединение")
         
         except ConnectionClosed:
             await self._drop_link(pid, ws)
