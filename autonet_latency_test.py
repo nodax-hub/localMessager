@@ -135,7 +135,7 @@ class LatencyNode:
                 break
             
             pause_for = 2
-            print("[AUTO] peers=", len(pids), f"< {self.expected}, ждём {pause_for}...")
+            print("[AUTO] peers=", len(pids), f"< {self.expected}, пауза ещё на {pause_for} сек...")
             await asyncio.sleep(pause_for)
             extra_wait += pause_for
             pids = list(self.net.conn.peers.keys()) + [self.net.id]
