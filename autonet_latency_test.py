@@ -52,6 +52,9 @@ class LatencyNode:
     
     def __init__(self, is_coord: bool, expected: int, probes_per_pair: int,
                  settle: float, duration: float):
+        # статистика от других узлов
+        self._task = None
+        self._foreign: List[dict] = []
         self.is_coord = is_coord
         self.expected = expected
         self.probes_per_pair = probes_per_pair
@@ -66,7 +69,7 @@ class LatencyNode:
         self._foreign_stats: List[Dict[str, str | int | float]] = []
         
         # AutoNet instance
-        self.net = AutoNet(on_message=self._on_message,
+        self.net = AutoNet(on_message=self._on_msg,
                            on_up=lambda pid: None,
                            on_down=lambda pid: None)
         # Бросаем явный лог для удобства
@@ -88,35 +91,28 @@ class LatencyNode:
     # ------------------------------------------------------------------
     #  Приём сообщений
     # ------------------------------------------------------------------
-    def _on_message(self, src_id: str, raw: str):
+    def _on_msg(self, src: str, raw: str):
         msg = json.loads(raw)
-        mtype = msg.get("type")
+        t = msg.get("type")
         
-        # --------------------------------------------------------------
-        if mtype == "probe":
-            # входящий probe — сразу шлём echo-ответ
-            echo = {"type": "probe", "id": msg["id"], "echo": True}
-            asyncio.run_coroutine_threadsafe(
-                self.net.conn.send(src_id, echo),
-                asyncio.get_event_loop())
+        if t == "probe":  # обычный probe или echo
+            if msg.get("echo"):
+                mid = msg["id"]
+                if mid in self._pending:
+                    t0, s, d = self._pending.pop(mid)
+                    self.latencies[(s, d)].append(time.perf_counter() - t0)
+            else:
+                echo = {"type": "probe", "id": msg["id"], "echo": True}
+                asyncio.run_coroutine_threadsafe(
+                    self.net.conn.send(src, echo), asyncio.get_event_loop())
         
-        elif mtype == "probe_echo":
-            msg_id = msg["id"]
-            if msg_id in self._pending:
-                t0, src, dst = self._pending.pop(msg_id)
-                latency = time.perf_counter() - t0
-                self.latencies[(src, dst)].append(latency)
-        
-        # --------------------------------------------------------------
-        elif mtype == "coord" and not self.is_coord:
-            # запоминаем id координатора
+        elif t == "coord" and not self.is_coord:
             self.coord_id = msg["coord_id"]
-            print(f"[AUTO] обнаружен координатор: {self.coord_id}")
+            print(f"[AUTO] coordinator = {self.coord_id}")
         
-        elif mtype == "stats" and self.is_coord:
-            records = msg["records"]
-            self._foreign_stats.extend(records)
-            print(f"[AUTO] получена статистика от {msg['from']}: {len(records)} рядов")
+        elif t == "stats" and self.is_coord:
+            self._foreign.extend(msg["records"])
+            print(f"[AUTO] stats from {msg['from']}: {len(msg['records'])}")
     
     # ------------------------------------------------------------------
     #  Рассылка probe-сообщений
@@ -146,6 +142,7 @@ class LatencyNode:
             for dst_id in pids:
                 if dst_id == self.net.id:
                     continue
+                
                 msg_counter += 1
                 msg_id = f"{self.net.id}_{msg_counter}"
                 probe = {"type": "probe", "id": msg_id}
