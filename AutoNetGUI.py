@@ -86,8 +86,8 @@ class MainWindow(tk.Tk):
         left = ttk.Frame(self)
         left.pack(side="left", fill="y", padx=5, pady=5)
         ttk.Label(left, text="Клиенты").pack()
-        self.peer_list = tk.Listbox(left, height=20)
-        self.peer_list.pack(fill="y")
+        self.peer_list = tk.Listbox(left, width=60, height=20)
+        self.peer_list.pack(fill="both")
         self.peer_list.bind("<<ListboxSelect>>", self._on_select)
         
         # список всегда содержит спец‑строку «Все»
@@ -178,17 +178,17 @@ class MainWindow(tk.Tk):
         if pid == "_ALL_":
             self._show_info("—", "—", "—")
             return
-        peer = self.bridge.net.conn.peers.get(pid)
-        if peer and hasattr(peer, "info"):
-            self._show_info(peer.info["iface"], peer.info["addr"], peer.info["port"])
+        
+        if peer := self.bridge.net.conn.peers.get(pid):
+            self._show_info(peer.via_interface.interface_name, peer.address, peer.port)
     
     # ───────────────────────────────────────
     #         вспомогательные методы
     # ───────────────────────────────────────
     def _show_info(self, iface, addr, port):
-        self.info_iface["text"] = f"Интерфейс: {iface}"
-        self.info_addr["text"] = f"Адрес: {addr}"
-        self.info_port["text"] = f"Порт: {port}"
+        self.info_iface["text"] = f"Через интерфейс: {iface}"
+        self.info_addr["text"] = f"Удалённый адрес: {addr}"
+        self.info_port["text"] = f"Удалённый порт: {port}"
     
     def _append_log(self, line):
         self.log["state"] = "normal"
